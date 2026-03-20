@@ -1,0 +1,36 @@
+{
+    "name": "nopayn/shopware-payment",
+    "description": "NoPayn Payment Plugin for Shopware 6 – Credit/Debit Card, Apple Pay, Google Pay, Vipps MobilePay",
+    "version": "1.0.0",
+    "type": "shopware-platform-plugin",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Cost+",
+            "homepage": "https://costplus.io"
+        }
+    ],
+    "require": {
+        "shopware/core": ">=6.5.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "NoPayn\\Payment\\": "src/"
+        }
+    },
+    "extra": {
+        "shopware-plugin-class": "NoPayn\\Payment\\NoPaynPayment",
+        "label": {
+            "en-GB": "NoPayn Payment",
+            "de-DE": "NoPayn Zahlung"
+        },
+        "description": {
+            "en-GB": "Accept Credit/Debit Cards, Apple Pay, Google Pay, and Vipps MobilePay via NoPayn",
+            "de-DE": "Akzeptieren Sie Kredit-/Debitkarten, Apple Pay, Google Pay und Vipps MobilePay über NoPayn"
+        },
+        "manufacturerLink": {
+            "en-GB": "https://costplus.io",
+            "de-DE": "https://costplus.io"
+        }
+    }
+}

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/shopware/platform/trunk/src/Core/System/SystemConfig/Schema/config.xsd">
+    <card>
+        <title>NoPayn API Settings</title>
+        <title lang="de-DE">NoPayn API-Einstellungen</title>
+
+        <input-field type="password">
+            <name>apiKey</name>
+            <label>API Key</label>
+            <label lang="de-DE">API-Schlüssel</label>
+            <helpText>Your NoPayn API key from the merchant portal (https://manage.nopayn.io/)</helpText>
+            <helpText lang="de-DE">Ihr NoPayn API-Schlüssel aus dem Händlerportal (https://manage.nopayn.io/)</helpText>
+            <required>true</required>
+        </input-field>
+    </card>
+</config>
