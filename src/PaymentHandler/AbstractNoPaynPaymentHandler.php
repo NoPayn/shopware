@@ -107,7 +107,9 @@ abstract class AbstractNoPaynPaymentHandler extends AbstractPaymentHandler
                 'return_url' => $returnUrl,
                 'failure_url' => $failureUrl,
                 'webhook_url' => $webhookUrl,
-                'payment_methods' => [$this->getPaymentMethodIdentifier()],
+                'transactions' => [
+                    ['payment_method' => $this->getPaymentMethodIdentifier()],
+                ],
                 'expiration_period' => 'PT5M',
             ];
 
