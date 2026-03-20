@@ -44,7 +44,7 @@ Each method can be enabled or disabled per sales channel from the plugin configu
 
 1. Customer selects a payment method at checkout and places the order
 2. Order is created with transaction status **in_progress**
-3. Customer is redirected to the NoPayn Hosted Payment Page (HPP)
+3. Customer is redirected directly to the chosen payment method on the NoPayn payment page
 4. After payment:
    - **Success**: customer returns, status verified via API, transaction set to **paid**, order set to **processing**
    - **Cancelled**: customer returns, transaction set to **cancelled**, order set to **cancelled**
