@@ -4,8 +4,8 @@ Accept Credit/Debit Cards, Apple Pay, Google Pay, and Vipps MobilePay in your Sh
 
 ## Requirements
 
-- Shopware 6.5 or 6.6+
-- PHP 8.1+
+- Shopware 6.7+
+- PHP 8.2+
 - NoPayn merchant account ([manage.nopayn.io](https://manage.nopayn.io/))
 
 ## Installation
@@ -25,17 +25,20 @@ Accept Credit/Debit Cards, Apple Pay, Google Pay, and Vipps MobilePay in your Sh
 ## Configuration
 
 1. Go to **Settings > Extensions > NoPayn Payment**
-2. Enter your NoPayn API key
-3. Save
+2. Enter your NoPayn API key (per sales channel if needed)
+3. Toggle individual payment methods on or off
+4. Save
 
 ## Payment Methods
 
-| Checkout Display      | Admin Name                   | NoPayn Identifier  |
-|-----------------------|------------------------------|---------------------|
-| Credit / Debit Card   | NoPayn Credit / Debit Card   | `credit-card`       |
-| Apple Pay             | NoPayn Apple Pay             | `apple-pay`         |
-| Google Pay            | NoPayn Google Pay            | `google-pay`        |
-| Vipps MobilePay       | NoPayn Vipps MobilePay       | `vipps-mobilepay`   |
+| Checkout Name       | Technical Name         | NoPayn Identifier  |
+|---------------------|------------------------|---------------------|
+| Credit / Debit Card | `nopayn_credit_card`   | `credit-card`       |
+| Apple Pay           | `nopayn_apple_pay`     | `apple-pay`         |
+| Google Pay          | `nopayn_google_pay`    | `google-pay`        |
+| Vipps MobilePay     | `nopayn_vipps_mobilepay` | `vipps-mobilepay` |
+
+Each method can be enabled or disabled per sales channel from the plugin configuration.
 
 ## Payment Flow
 
@@ -43,9 +46,9 @@ Accept Credit/Debit Cards, Apple Pay, Google Pay, and Vipps MobilePay in your Sh
 2. Order is created with transaction status **in_progress**
 3. Customer is redirected to the NoPayn Hosted Payment Page (HPP)
 4. After payment:
-   - **Success**: customer returns → status verified via API → transaction set to **paid**, order set to **processing**
-   - **Cancelled**: customer returns → transaction set to **cancelled**, order set to **cancelled**
-   - **Expired** (5 min timeout): webhook fires → transaction and order set to **cancelled**
+   - **Success**: customer returns, status verified via API, transaction set to **paid**, order set to **processing**
+   - **Cancelled**: customer returns, transaction set to **cancelled**, order set to **cancelled**
+   - **Expired** (5 min timeout): webhook fires, transaction and order set to **cancelled**
 5. NoPayn sends a webhook for asynchronous status confirmation
 
 ## Order Status Mapping
@@ -61,7 +64,7 @@ Accept Credit/Debit Cards, Apple Pay, Google Pay, and Vipps MobilePay in your Sh
 
 ## Webhook
 
-The plugin registers a webhook endpoint at `/nopayn/webhook`. This URL is automatically sent to NoPayn when creating orders.
+The plugin registers a webhook endpoint at `/api/nopayn/webhook`. This URL is automatically sent to NoPayn when creating orders.
 
 ## Support
 

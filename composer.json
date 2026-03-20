@@ -1,7 +1,7 @@
 {
     "name": "nopayn/shopware-payment",
     "description": "NoPayn Payment Plugin for Shopware 6 – Credit/Debit Card, Apple Pay, Google Pay, Vipps MobilePay",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "type": "shopware-platform-plugin",
     "license": "MIT",
     "authors": [

@@ -24,14 +24,12 @@ class PaymentMethodInstaller
             'description' => CreditCardPaymentHandler::PAYMENT_METHOD_DESCRIPTION,
             'translations' => [
                 'en-GB' => [
-                    'name' => 'NoPayn Credit / Debit Card',
+                    'name' => 'Credit / Debit Card',
                     'description' => 'Pay securely with Visa, Mastercard, Amex and more',
-                    'customFields' => ['nopayn_checkout_name' => 'Credit / Debit Card'],
                 ],
                 'de-DE' => [
-                    'name' => 'NoPayn Kredit- / Debitkarte',
+                    'name' => 'Kredit- / Debitkarte',
                     'description' => 'Sicher bezahlen mit Visa, Mastercard, Amex und mehr',
-                    'customFields' => ['nopayn_checkout_name' => 'Kredit- / Debitkarte'],
                 ],
             ],
         ],
@@ -42,14 +40,12 @@ class PaymentMethodInstaller
             'description' => ApplePayPaymentHandler::PAYMENT_METHOD_DESCRIPTION,
             'translations' => [
                 'en-GB' => [
-                    'name' => 'NoPayn Apple Pay',
+                    'name' => 'Apple Pay',
                     'description' => 'Pay with Apple Pay',
-                    'customFields' => ['nopayn_checkout_name' => 'Apple Pay'],
                 ],
                 'de-DE' => [
-                    'name' => 'NoPayn Apple Pay',
+                    'name' => 'Apple Pay',
                     'description' => 'Bezahlen mit Apple Pay',
-                    'customFields' => ['nopayn_checkout_name' => 'Apple Pay'],
                 ],
             ],
         ],
@@ -60,14 +56,12 @@ class PaymentMethodInstaller
             'description' => GooglePayPaymentHandler::PAYMENT_METHOD_DESCRIPTION,
             'translations' => [
                 'en-GB' => [
-                    'name' => 'NoPayn Google Pay',
+                    'name' => 'Google Pay',
                     'description' => 'Pay with Google Pay',
-                    'customFields' => ['nopayn_checkout_name' => 'Google Pay'],
                 ],
                 'de-DE' => [
-                    'name' => 'NoPayn Google Pay',
+                    'name' => 'Google Pay',
                     'description' => 'Bezahlen mit Google Pay',
-                    'customFields' => ['nopayn_checkout_name' => 'Google Pay'],
                 ],
             ],
         ],
@@ -78,14 +72,12 @@ class PaymentMethodInstaller
             'description' => VippsMobilePayPaymentHandler::PAYMENT_METHOD_DESCRIPTION,
             'translations' => [
                 'en-GB' => [
-                    'name' => 'NoPayn Vipps MobilePay',
+                    'name' => 'Vipps MobilePay',
                     'description' => 'Pay with Vipps MobilePay',
-                    'customFields' => ['nopayn_checkout_name' => 'Vipps MobilePay'],
                 ],
                 'de-DE' => [
-                    'name' => 'NoPayn Vipps MobilePay',
+                    'name' => 'Vipps MobilePay',
                     'description' => 'Bezahlen mit Vipps MobilePay',
-                    'customFields' => ['nopayn_checkout_name' => 'Vipps MobilePay'],
                 ],
             ],
         ],
@@ -103,22 +95,23 @@ class PaymentMethodInstaller
         $pluginId = $this->pluginIdProvider->getPluginIdByBaseClass($this->pluginClass, $context);
 
         foreach (self::PAYMENT_METHODS as $method) {
-            $existing = $this->getPaymentMethodByHandler($method['handlerIdentifier'], $context);
-            if ($existing !== null) {
-                continue;
+            $existingId = $this->getPaymentMethodByHandler($method['handlerIdentifier'], $context);
+
+            $data = [
+                'handlerIdentifier' => $method['handlerIdentifier'],
+                'technicalName' => $method['technicalName'],
+                'name' => $method['name'],
+                'description' => $method['description'],
+                'pluginId' => $pluginId,
+                'afterOrderEnabled' => true,
+                'translations' => $method['translations'],
+            ];
+
+            if ($existingId !== null) {
+                $data['id'] = $existingId;
             }
 
-            $this->paymentMethodRepository->upsert([
-                [
-                    'handlerIdentifier' => $method['handlerIdentifier'],
-                    'technicalName' => $method['technicalName'],
-                    'name' => $method['name'],
-                    'description' => $method['description'],
-                    'pluginId' => $pluginId,
-                    'afterOrderEnabled' => true,
-                    'translations' => $method['translations'],
-                ],
-            ], $context);
+            $this->paymentMethodRepository->upsert([$data], $context);
         }
     }
 

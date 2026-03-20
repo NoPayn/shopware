@@ -54,6 +54,12 @@
             <tag name="shopware.payment.method"/>
         </service>
 
+        <!-- Checkout Subscriber (filters disabled payment methods) -->
+        <service id="NoPayn\Payment\Subscriber\CheckoutSubscriber">
+            <argument type="service" id="Shopware\Core\System\SystemConfig\SystemConfigService"/>
+            <tag name="kernel.event_subscriber"/>
+        </service>
+
         <!-- Webhook Controller -->
         <service id="NoPayn\Payment\Controller\WebhookController" public="true">
             <argument type="service" id="NoPayn\Payment\Service\NoPaynApiClient"/>

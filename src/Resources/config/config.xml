@@ -14,4 +14,45 @@
             <required>true</required>
         </input-field>
     </card>
+
+    <card>
+        <title>Payment Methods</title>
+        <title lang="de-DE">Zahlungsmethoden</title>
+
+        <input-field type="bool">
+            <name>enableCreditCard</name>
+            <label>Credit / Debit Card</label>
+            <label lang="de-DE">Kredit- / Debitkarte</label>
+            <helpText>Show Credit / Debit Card as a payment option at checkout</helpText>
+            <helpText lang="de-DE">Kredit- / Debitkarte als Zahlungsoption an der Kasse anzeigen</helpText>
+            <defaultValue>true</defaultValue>
+        </input-field>
+
+        <input-field type="bool">
+            <name>enableApplePay</name>
+            <label>Apple Pay</label>
+            <label lang="de-DE">Apple Pay</label>
+            <helpText>Show Apple Pay as a payment option at checkout</helpText>
+            <helpText lang="de-DE">Apple Pay als Zahlungsoption an der Kasse anzeigen</helpText>
+            <defaultValue>true</defaultValue>
+        </input-field>
+
+        <input-field type="bool">
+            <name>enableGooglePay</name>
+            <label>Google Pay</label>
+            <label lang="de-DE">Google Pay</label>
+            <helpText>Show Google Pay as a payment option at checkout</helpText>
+            <helpText lang="de-DE">Google Pay als Zahlungsoption an der Kasse anzeigen</helpText>
+            <defaultValue>true</defaultValue>
+        </input-field>
+
+        <input-field type="bool">
+            <name>enableVippsMobilePay</name>
+            <label>Vipps MobilePay</label>
+            <label lang="de-DE">Vipps MobilePay</label>
+            <helpText>Show Vipps MobilePay as a payment option at checkout</helpText>
+            <helpText lang="de-DE">Vipps MobilePay als Zahlungsoption an der Kasse anzeigen</helpText>
+            <defaultValue>true</defaultValue>
+        </input-field>
+    </card>
 </config>

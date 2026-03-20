@@ -7,9 +7,9 @@ namespace NoPayn\Payment\PaymentHandler;
 class ApplePayPaymentHandler extends AbstractNoPaynPaymentHandler
 {
     public const PAYMENT_METHOD_IDENTIFIER = 'apple-pay';
-    public const PAYMENT_METHOD_NAME = 'NoPayn Apple Pay';
+    public const PAYMENT_METHOD_NAME = 'Apple Pay';
     public const PAYMENT_METHOD_DESCRIPTION = 'Pay with Apple Pay';
-    public const CHECKOUT_DISPLAY_NAME = 'Apple Pay';
+    public const CONFIG_KEY = 'NoPaynPayment.config.enableApplePay';
 
     protected function getPaymentMethodIdentifier(): string
     {

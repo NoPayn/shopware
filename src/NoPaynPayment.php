@@ -10,6 +10,7 @@ use Shopware\Core\Framework\Plugin\Context\ActivateContext;
 use Shopware\Core\Framework\Plugin\Context\DeactivateContext;
 use Shopware\Core\Framework\Plugin\Context\InstallContext;
 use Shopware\Core\Framework\Plugin\Context\UninstallContext;
+use Shopware\Core\Framework\Plugin\Context\UpdateContext;
 
 class NoPaynPayment extends Plugin
 {
@@ -27,6 +28,11 @@ class NoPaynPayment extends Plugin
             $connection->executeStatement('DROP TABLE IF EXISTS `nopayn_refunds`');
             $connection->executeStatement('DROP TABLE IF EXISTS `nopayn_transactions`');
         }
+    }
+
+    public function update(UpdateContext $updateContext): void
+    {
+        $this->getInstaller()->install($updateContext->getContext());
     }
 
     public function activate(ActivateContext $activateContext): void
