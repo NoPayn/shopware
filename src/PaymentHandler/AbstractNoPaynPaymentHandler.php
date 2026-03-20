@@ -8,22 +8,22 @@ use Doctrine\DBAL\Connection;
 use NoPayn\Payment\Service\NoPaynApiClient;
 use Psr\Log\LoggerInterface;
 use Shopware\Core\Checkout\Order\Aggregate\OrderTransaction\OrderTransactionStateHandler;
-use Shopware\Core\Checkout\Payment\Cart\AsyncPaymentTransactionStruct;
-use Shopware\Core\Checkout\Payment\Cart\PaymentHandler\AsynchronousPaymentHandlerInterface;
-use Shopware\Core\Checkout\Payment\Exception\AsyncPaymentProcessException;
-use Shopware\Core\Checkout\Payment\Exception\CustomerCanceledAsyncPaymentException;
+use Shopware\Core\Checkout\Payment\Cart\PaymentHandler\AbstractPaymentHandler;
+use Shopware\Core\Checkout\Payment\Cart\PaymentHandler\PaymentHandlerType;
+use Shopware\Core\Checkout\Payment\Cart\PaymentTransactionStruct;
+use Shopware\Core\Checkout\Payment\PaymentException;
+use Shopware\Core\Framework\Context;
+use Shopware\Core\Framework\Struct\Struct;
 use Shopware\Core\Framework\Uuid\Uuid;
-use Shopware\Core\Framework\Validation\DataBag\RequestDataBag;
-use Shopware\Core\System\SalesChannel\SalesChannelContext;
+use Shopware\Core\System\StateMachine\StateMachineRegistry;
+use Shopware\Core\System\StateMachine\Transition;
 use Shopware\Core\System\SystemConfig\SystemConfigService;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Request;
-use Shopware\Core\System\StateMachine\StateMachineRegistry;
-use Shopware\Core\System\StateMachine\Transition;
 use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
 use Symfony\Component\Routing\RouterInterface;
 
-abstract class AbstractNoPaynPaymentHandler implements AsynchronousPaymentHandlerInterface
+abstract class AbstractNoPaynPaymentHandler extends AbstractPaymentHandler
 {
     private const LOCALE_MAP = [
         'en-GB' => 'en-GB',
@@ -54,33 +54,46 @@ abstract class AbstractNoPaynPaymentHandler implements AsynchronousPaymentHandle
 
     abstract protected function getPaymentMethodIdentifier(): string;
 
-    public function pay(
-        AsyncPaymentTransactionStruct $transaction,
-        RequestDataBag $dataBag,
-        SalesChannelContext $salesChannelContext,
-    ): RedirectResponse {
-        $order = $transaction->getOrder();
-        $orderTransaction = $transaction->getOrderTransaction();
-        $salesChannelId = $salesChannelContext->getSalesChannelId();
+    public function supports(PaymentHandlerType $type, string $paymentMethodId, Context $context): bool
+    {
+        return false;
+    }
 
+    public function pay(
+        Request $request,
+        PaymentTransactionStruct $transaction,
+        Context $context,
+        ?Struct $validateStruct,
+    ): ?RedirectResponse {
+        $orderTransactionId = $transaction->getOrderTransactionId();
+        $returnUrl = $transaction->getReturnUrl();
+
+        $orderData = $this->loadOrderData($orderTransactionId);
+        if ($orderData === null) {
+            throw PaymentException::asyncProcessInterrupted(
+                $orderTransactionId,
+                'Could not load order data for transaction.'
+            );
+        }
+
+        $salesChannelId = $orderData['sales_channel_id'];
         $apiKey = $this->systemConfigService->getString('NoPaynPayment.config.apiKey', $salesChannelId);
         if ($apiKey === '') {
-            throw new AsyncPaymentProcessException(
-                $orderTransaction->getId(),
+            throw PaymentException::asyncProcessInterrupted(
+                $orderTransactionId,
                 'NoPayn API key is not configured. Go to Settings > Extensions > NoPayn Payment.'
             );
         }
 
         $this->apiClient->setApiKey($apiKey);
 
-        $amountCents = (int) round($order->getAmountTotal() * 100);
-        $currency = $salesChannelContext->getCurrency()->getIsoCode();
+        $amountCents = (int) round((float) $orderData['amount_total'] * 100);
+        $currency = $orderData['currency_iso'];
 
-        $returnUrl = $transaction->getReturnUrl();
         $failureUrl = $returnUrl . (str_contains($returnUrl, '?') ? '&' : '?') . 'nopayn_cancelled=1';
 
         $webhookUrl = $this->router->generate(
-            'frontend.nopayn.webhook',
+            'api.nopayn.webhook',
             [],
             UrlGeneratorInterface::ABSOLUTE_URL
         );
@@ -89,8 +102,8 @@ abstract class AbstractNoPaynPaymentHandler implements AsynchronousPaymentHandle
             $params = [
                 'currency' => $currency,
                 'amount' => $amountCents,
-                'merchant_order_id' => $order->getOrderNumber(),
-                'description' => 'Order ' . $order->getOrderNumber(),
+                'merchant_order_id' => $orderData['order_number'],
+                'description' => 'Order ' . $orderData['order_number'],
                 'return_url' => $returnUrl,
                 'failure_url' => $failureUrl,
                 'webhook_url' => $webhookUrl,
@@ -98,7 +111,7 @@ abstract class AbstractNoPaynPaymentHandler implements AsynchronousPaymentHandle
                 'expiration_period' => 'PT5M',
             ];
 
-            $locale = $this->resolveLocale($salesChannelContext);
+            $locale = $this->resolveLocale($orderData['language_id']);
             if ($locale !== null) {
                 $params['locale'] = $locale;
             }
@@ -107,8 +120,8 @@ abstract class AbstractNoPaynPaymentHandler implements AsynchronousPaymentHandle
 
             $this->connection->insert('nopayn_transactions', [
                 'id' => Uuid::randomBytes(),
-                'order_transaction_id' => Uuid::fromHexToBytes($orderTransaction->getId()),
-                'order_id' => Uuid::fromHexToBytes($order->getId()),
+                'order_transaction_id' => Uuid::fromHexToBytes($orderTransactionId),
+                'order_id' => $orderData['order_id_bin'],
                 'nopayn_order_id' => $nopaynOrder['id'],
                 'payment_method' => $this->getPaymentMethodIdentifier(),
                 'amount' => $amountCents,
@@ -117,10 +130,7 @@ abstract class AbstractNoPaynPaymentHandler implements AsynchronousPaymentHandle
                 'created_at' => (new \DateTime())->format('Y-m-d H:i:s.v'),
             ]);
 
-            $this->transactionStateHandler->process(
-                $orderTransaction->getId(),
-                $salesChannelContext->getContext()
-            );
+            $this->transactionStateHandler->process($orderTransactionId, $context);
 
             $paymentUrl = $nopaynOrder['transactions'][0]['payment_url']
                 ?? $nopaynOrder['order_url']
@@ -131,35 +141,39 @@ abstract class AbstractNoPaynPaymentHandler implements AsynchronousPaymentHandle
             }
 
             return new RedirectResponse($paymentUrl);
-        } catch (AsyncPaymentProcessException $e) {
+        } catch (PaymentException $e) {
             throw $e;
         } catch (\Throwable $e) {
             $this->logger->error('NoPayn pay() error', [
                 'error' => $e->getMessage(),
-                'orderNumber' => $order->getOrderNumber(),
+                'orderNumber' => $orderData['order_number'],
             ]);
-            throw new AsyncPaymentProcessException(
-                $orderTransaction->getId(),
+            throw PaymentException::asyncProcessInterrupted(
+                $orderTransactionId,
                 'Payment could not be processed: ' . $e->getMessage()
             );
         }
     }
 
     public function finalize(
-        AsyncPaymentTransactionStruct $transaction,
         Request $request,
-        SalesChannelContext $salesChannelContext,
+        PaymentTransactionStruct $transaction,
+        Context $context,
     ): void {
-        $orderTransactionId = $transaction->getOrderTransaction()->getId();
-        $salesChannelId = $salesChannelContext->getSalesChannelId();
+        $orderTransactionId = $transaction->getOrderTransactionId();
+
+        $orderData = $this->loadOrderData($orderTransactionId);
+        $salesChannelId = $orderData['sales_channel_id'] ?? null;
 
         $apiKey = $this->systemConfigService->getString('NoPaynPayment.config.apiKey', $salesChannelId);
         $this->apiClient->setApiKey($apiKey);
 
         if ($request->query->get('nopayn_cancelled')) {
             $this->updateTransactionStatus($orderTransactionId, 'cancelled');
-            $this->cancelOrder($transaction->getOrder()->getId(), $salesChannelContext->getContext());
-            throw new CustomerCanceledAsyncPaymentException(
+            if ($orderData !== null) {
+                $this->cancelOrder(Uuid::fromBytesToHex($orderData['order_id_bin']), $context);
+            }
+            throw PaymentException::customerCanceled(
                 $orderTransactionId,
                 'Payment was cancelled by the customer.'
             );
@@ -167,7 +181,7 @@ abstract class AbstractNoPaynPaymentHandler implements AsynchronousPaymentHandle
 
         $nopaynTx = $this->getTransactionByOrderTransactionId($orderTransactionId);
         if ($nopaynTx === null) {
-            throw new CustomerCanceledAsyncPaymentException(
+            throw PaymentException::customerCanceled(
                 $orderTransactionId,
                 'NoPayn transaction record not found.'
             );
@@ -177,7 +191,7 @@ abstract class AbstractNoPaynPaymentHandler implements AsynchronousPaymentHandle
             $nopaynOrder = $this->apiClient->getOrder($nopaynTx['nopayn_order_id']);
         } catch (\Throwable $e) {
             $this->logger->error('NoPayn finalize() verification error', ['error' => $e->getMessage()]);
-            throw new CustomerCanceledAsyncPaymentException(
+            throw PaymentException::customerCanceled(
                 $orderTransactionId,
                 'Could not verify payment status: ' . $e->getMessage()
             );
@@ -191,12 +205,13 @@ abstract class AbstractNoPaynPaymentHandler implements AsynchronousPaymentHandle
         }
 
         if (\in_array($status, ['processing', 'new'], true)) {
-            // Still processing – webhook will finalize; treat as success for now
             return;
         }
 
-        $this->cancelOrder($transaction->getOrder()->getId(), $salesChannelContext->getContext());
-        throw new CustomerCanceledAsyncPaymentException(
+        if ($orderData !== null) {
+            $this->cancelOrder(Uuid::fromBytesToHex($orderData['order_id_bin']), $context);
+        }
+        throw PaymentException::customerCanceled(
             $orderTransactionId,
             'Payment was not completed (status: ' . $status . ').'
         );
@@ -234,7 +249,34 @@ abstract class AbstractNoPaynPaymentHandler implements AsynchronousPaymentHandle
         );
     }
 
-    private function cancelOrder(string $orderId, \Shopware\Core\Framework\Context $context): void
+    private function loadOrderData(string $orderTransactionId): ?array
+    {
+        $row = $this->connection->fetchAssociative(
+            'SELECT
+                ot.order_id AS order_id_bin,
+                o.order_number,
+                o.amount_total,
+                o.language_id,
+                o.sales_channel_id,
+                c.iso_code AS currency_iso
+             FROM `order_transaction` ot
+             INNER JOIN `order` o ON ot.order_id = o.id AND ot.order_version_id = o.version_id
+             INNER JOIN `currency` c ON o.currency_id = c.id
+             WHERE ot.id = :id',
+            ['id' => Uuid::fromHexToBytes($orderTransactionId)]
+        );
+
+        if (!$row) {
+            return null;
+        }
+
+        $row['sales_channel_id'] = Uuid::fromBytesToHex($row['sales_channel_id']);
+        $row['language_id'] = Uuid::fromBytesToHex($row['language_id']);
+
+        return $row;
+    }
+
+    private function cancelOrder(string $orderId, Context $context): void
     {
         try {
             $this->stateMachineRegistry->transition(
@@ -249,22 +291,20 @@ abstract class AbstractNoPaynPaymentHandler implements AsynchronousPaymentHandle
         }
     }
 
-    private function resolveLocale(SalesChannelContext $context): ?string
+    private function resolveLocale(string $languageIdHex): ?string
     {
         try {
-            $languageId = $context->getContext()->getLanguageId();
             $localeCode = $this->connection->fetchOne(
                 'SELECT lo.code FROM `language` la
                  INNER JOIN `locale` lo ON la.locale_id = lo.id
                  WHERE la.id = :id',
-                ['id' => Uuid::fromHexToBytes($languageId)]
+                ['id' => Uuid::fromHexToBytes($languageIdHex)]
             );
 
             if ($localeCode && isset(self::LOCALE_MAP[$localeCode])) {
                 return self::LOCALE_MAP[$localeCode];
             }
         } catch (\Throwable) {
-            // Ignore – fallback to en-GB
         }
 
         return 'en-GB';

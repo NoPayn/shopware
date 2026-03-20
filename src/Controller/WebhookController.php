@@ -10,18 +10,19 @@ use Psr\Log\LoggerInterface;
 use Shopware\Core\Checkout\Order\Aggregate\OrderTransaction\OrderTransactionStateHandler;
 use Shopware\Core\Checkout\Order\Aggregate\OrderTransaction\OrderTransactionStates;
 use Shopware\Core\Framework\Context;
+use Shopware\Core\Framework\Routing\ApiRouteScope;
 use Shopware\Core\Framework\Uuid\Uuid;
+use Shopware\Core\PlatformRequest;
 use Shopware\Core\System\StateMachine\StateMachineRegistry;
 use Shopware\Core\System\StateMachine\Transition;
 use Shopware\Core\System\SystemConfig\SystemConfigService;
-use Shopware\Storefront\Controller\StorefrontController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Attribute\Route;
 
-#[Route(defaults: ['_routeScope' => ['storefront']])]
-class WebhookController extends StorefrontController
+#[Route(defaults: [PlatformRequest::ATTRIBUTE_ROUTE_SCOPE => [ApiRouteScope::ID]])]
+class WebhookController
 {
     private const FINAL_STATUSES = ['completed', 'cancelled', 'expired'];
 
@@ -36,10 +37,10 @@ class WebhookController extends StorefrontController
     }
 
     #[Route(
-        path: '/nopayn/webhook',
-        name: 'frontend.nopayn.webhook',
+        path: '/api/nopayn/webhook',
+        name: 'api.nopayn.webhook',
         methods: ['POST'],
-        defaults: ['csrf_protected' => false, 'XmlHttpRequest' => false, 'auth_required' => false],
+        defaults: ['auth_required' => false],
     )]
     public function webhook(Request $request): Response
     {

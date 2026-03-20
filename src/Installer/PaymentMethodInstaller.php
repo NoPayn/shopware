@@ -19,6 +19,7 @@ class PaymentMethodInstaller
     private const PAYMENT_METHODS = [
         [
             'handlerIdentifier' => CreditCardPaymentHandler::class,
+            'technicalName' => 'nopayn_credit_card',
             'name' => CreditCardPaymentHandler::PAYMENT_METHOD_NAME,
             'description' => CreditCardPaymentHandler::PAYMENT_METHOD_DESCRIPTION,
             'translations' => [
@@ -36,6 +37,7 @@ class PaymentMethodInstaller
         ],
         [
             'handlerIdentifier' => ApplePayPaymentHandler::class,
+            'technicalName' => 'nopayn_apple_pay',
             'name' => ApplePayPaymentHandler::PAYMENT_METHOD_NAME,
             'description' => ApplePayPaymentHandler::PAYMENT_METHOD_DESCRIPTION,
             'translations' => [
@@ -53,6 +55,7 @@ class PaymentMethodInstaller
         ],
         [
             'handlerIdentifier' => GooglePayPaymentHandler::class,
+            'technicalName' => 'nopayn_google_pay',
             'name' => GooglePayPaymentHandler::PAYMENT_METHOD_NAME,
             'description' => GooglePayPaymentHandler::PAYMENT_METHOD_DESCRIPTION,
             'translations' => [
@@ -70,6 +73,7 @@ class PaymentMethodInstaller
         ],
         [
             'handlerIdentifier' => VippsMobilePayPaymentHandler::class,
+            'technicalName' => 'nopayn_vipps_mobilepay',
             'name' => VippsMobilePayPaymentHandler::PAYMENT_METHOD_NAME,
             'description' => VippsMobilePayPaymentHandler::PAYMENT_METHOD_DESCRIPTION,
             'translations' => [
@@ -107,6 +111,7 @@ class PaymentMethodInstaller
             $this->paymentMethodRepository->upsert([
                 [
                     'handlerIdentifier' => $method['handlerIdentifier'],
+                    'technicalName' => $method['technicalName'],
                     'name' => $method['name'],
                     'description' => $method['description'],
                     'pluginId' => $pluginId,
