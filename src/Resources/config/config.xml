@@ -13,6 +13,15 @@
             <helpText lang="de-DE">Ihr NoPayn API-Schlüssel aus dem Händlerportal (https://manage.nopayn.io/)</helpText>
             <required>true</required>
         </input-field>
+
+        <input-field type="bool">
+            <name>debugLogging</name>
+            <label>Debug Logging</label>
+            <label lang="de-DE">Debug-Protokollierung</label>
+            <helpText>Enable detailed logging of API requests, responses, and webhook events to var/log/nopayn_debug.log</helpText>
+            <helpText lang="de-DE">Detaillierte Protokollierung von API-Anfragen, -Antworten und Webhook-Ereignissen in var/log/nopayn_debug.log aktivieren</helpText>
+            <defaultValue>false</defaultValue>
+        </input-field>
     </card>
 
     <card>
@@ -26,6 +35,15 @@
             <helpText>Show Credit / Debit Card as a payment option at checkout</helpText>
             <helpText lang="de-DE">Kredit- / Debitkarte als Zahlungsoption an der Kasse anzeigen</helpText>
             <defaultValue>true</defaultValue>
+        </input-field>
+
+        <input-field type="bool">
+            <name>creditCardManualCapture</name>
+            <label>Manual Capture (Credit Card)</label>
+            <label lang="de-DE">Manuelle Erfassung (Kreditkarte)</label>
+            <helpText>When enabled, credit card payments are only authorized at checkout. Capture occurs when the order status changes to completed or shipped.</helpText>
+            <helpText lang="de-DE">Wenn aktiviert, werden Kreditkartenzahlungen an der Kasse nur autorisiert. Die Erfassung erfolgt, wenn der Bestellstatus auf abgeschlossen oder versendet wechselt.</helpText>
+            <defaultValue>false</defaultValue>
         </input-field>
 
         <input-field type="bool">

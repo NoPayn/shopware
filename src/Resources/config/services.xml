@@ -1,12 +1,43 @@
 <?xml version="1.0" ?>
 <container xmlns="http://symfony.com/schema/dic/services"
            xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+           xmlns:monolog="http://symfony.com/schema/dic/monolog"
            xsi:schemaLocation="http://symfony.com/schema/dic/services http://symfony.com/schema/dic/services/services-1.0.xsd">
 
     <services>
+        <!-- NoPayn Debug Logger (var/log/nopayn_debug.log) -->
+        <service id="nopayn.logger.debug" class="Monolog\Logger">
+            <argument>nopayn_debug</argument>
+            <call method="pushHandler">
+                <argument type="service" id="nopayn.logger.debug.handler"/>
+            </call>
+        </service>
+
+        <service id="nopayn.logger.debug.handler" class="Monolog\Handler\RotatingFileHandler">
+            <argument>%kernel.logs_dir%/nopayn_debug.log</argument>
+            <argument>7</argument>
+            <argument type="constant">Monolog\Logger::DEBUG</argument>
+        </service>
+
+        <!-- NoPayn Error Logger (var/log/nopayn_error.log) -->
+        <service id="nopayn.logger.error" class="Monolog\Logger">
+            <argument>nopayn_error</argument>
+            <call method="pushHandler">
+                <argument type="service" id="nopayn.logger.error.handler"/>
+            </call>
+        </service>
+
+        <service id="nopayn.logger.error.handler" class="Monolog\Handler\RotatingFileHandler">
+            <argument>%kernel.logs_dir%/nopayn_error.log</argument>
+            <argument>14</argument>
+            <argument type="constant">Monolog\Logger::WARNING</argument>
+        </service>
+
         <!-- API Client -->
         <service id="NoPayn\Payment\Service\NoPaynApiClient">
             <argument type="service" id="logger"/>
+            <argument type="service" id="nopayn.logger.debug"/>
+            <argument type="service" id="nopayn.logger.error"/>
         </service>
 
         <!-- Payment Handlers (tagged for Shopware 6.7 PaymentHandlerRegistry) -->
@@ -60,6 +91,17 @@
             <tag name="kernel.event_subscriber"/>
         </service>
 
+        <!-- Order State Subscriber (capture on completed/shipped, void on cancel) -->
+        <service id="NoPayn\Payment\Subscriber\OrderStateSubscriber">
+            <argument type="service" id="NoPayn\Payment\Service\NoPaynApiClient"/>
+            <argument type="service" id="Shopware\Core\System\SystemConfig\SystemConfigService"/>
+            <argument type="service" id="Doctrine\DBAL\Connection"/>
+            <argument type="service" id="logger"/>
+            <argument type="service" id="nopayn.logger.debug"/>
+            <argument type="service" id="nopayn.logger.error"/>
+            <tag name="kernel.event_subscriber"/>
+        </service>
+
         <!-- Webhook Controller -->
         <service id="NoPayn\Payment\Controller\WebhookController" public="true">
             <argument type="service" id="NoPayn\Payment\Service\NoPaynApiClient"/>
@@ -68,6 +110,8 @@
             <argument type="service" id="Doctrine\DBAL\Connection"/>
             <argument type="service" id="Shopware\Core\System\StateMachine\StateMachineRegistry"/>
             <argument type="service" id="logger"/>
+            <argument type="service" id="nopayn.logger.debug"/>
+            <argument type="service" id="nopayn.logger.error"/>
             <tag name="controller.service_arguments"/>
         </service>
     </services>

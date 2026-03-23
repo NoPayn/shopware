@@ -85,7 +85,9 @@ abstract class AbstractNoPaynPaymentHandler extends AbstractPaymentHandler
             );
         }
 
+        $debugLogging = (bool) $this->systemConfigService->get('NoPaynPayment.config.debugLogging', $salesChannelId);
         $this->apiClient->setApiKey($apiKey);
+        $this->apiClient->setDebugLogging($debugLogging);
 
         $amountCents = (int) round((float) $orderData['amount_total'] * 100);
         $currency = $orderData['currency_iso'];
@@ -99,6 +101,21 @@ abstract class AbstractNoPaynPaymentHandler extends AbstractPaymentHandler
         );
 
         try {
+            $transactionData = ['payment_method' => $this->getPaymentMethodIdentifier()];
+
+            // Manual capture for credit card
+            $captureMode = 'automatic';
+            if ($this->getPaymentMethodIdentifier() === CreditCardPaymentHandler::PAYMENT_METHOD_IDENTIFIER) {
+                $manualCapture = (bool) $this->systemConfigService->get(
+                    'NoPaynPayment.config.creditCardManualCapture',
+                    $salesChannelId
+                );
+                if ($manualCapture) {
+                    $transactionData['capture_mode'] = 'manual';
+                    $captureMode = 'manual';
+                }
+            }
+
             $params = [
                 'currency' => $currency,
                 'amount' => $amountCents,
@@ -107,15 +124,28 @@ abstract class AbstractNoPaynPaymentHandler extends AbstractPaymentHandler
                 'return_url' => $returnUrl,
                 'failure_url' => $failureUrl,
                 'webhook_url' => $webhookUrl,
-                'transactions' => [
-                    ['payment_method' => $this->getPaymentMethodIdentifier()],
-                ],
+                'transactions' => [$transactionData],
                 'expiration_period' => 'PT5M',
             ];
 
             $locale = $this->resolveLocale($orderData['language_id']);
             if ($locale !== null) {
                 $params['locale'] = $locale;
+            }
+
+            // Build itemized order lines
+            $orderLines = $this->buildOrderLines($orderTransactionId, $currency);
+            if ($orderLines !== []) {
+                $params['order_lines'] = $orderLines;
+            }
+
+            if ($debugLogging) {
+                $this->logger->debug('NoPayn: creating order', [
+                    'orderNumber' => $orderData['order_number'],
+                    'amount' => $amountCents,
+                    'currency' => $currency,
+                    'captureMode' => $captureMode,
+                ]);
             }
 
             $nopaynOrder = $this->apiClient->createOrder($params);
@@ -129,6 +159,7 @@ abstract class AbstractNoPaynPaymentHandler extends AbstractPaymentHandler
                 'amount' => $amountCents,
                 'currency' => $currency,
                 'status' => 'new',
+                'capture_mode' => $captureMode,
                 'created_at' => (new \DateTime())->format('Y-m-d H:i:s.v'),
             ]);
 
@@ -146,7 +177,7 @@ abstract class AbstractNoPaynPaymentHandler extends AbstractPaymentHandler
         } catch (PaymentException $e) {
             throw $e;
         } catch (\Throwable $e) {
-            $this->logger->error('NoPayn pay() error', [
+            $this->logger->error('NoPayn: pay() error', [
                 'error' => $e->getMessage(),
                 'orderNumber' => $orderData['order_number'],
             ]);
@@ -168,7 +199,9 @@ abstract class AbstractNoPaynPaymentHandler extends AbstractPaymentHandler
         $salesChannelId = $orderData['sales_channel_id'] ?? null;
 
         $apiKey = $this->systemConfigService->getString('NoPaynPayment.config.apiKey', $salesChannelId);
+        $debugLogging = (bool) $this->systemConfigService->get('NoPaynPayment.config.debugLogging', $salesChannelId);
         $this->apiClient->setApiKey($apiKey);
+        $this->apiClient->setDebugLogging($debugLogging);
 
         if ($request->query->get('nopayn_cancelled')) {
             $this->updateTransactionStatus($orderTransactionId, 'cancelled');
@@ -192,7 +225,7 @@ abstract class AbstractNoPaynPaymentHandler extends AbstractPaymentHandler
         try {
             $nopaynOrder = $this->apiClient->getOrder($nopaynTx['nopayn_order_id']);
         } catch (\Throwable $e) {
-            $this->logger->error('NoPayn finalize() verification error', ['error' => $e->getMessage()]);
+            $this->logger->error('NoPayn: finalize() verification error', ['error' => $e->getMessage()]);
             throw PaymentException::customerCanceled(
                 $orderTransactionId,
                 'Could not verify payment status: ' . $e->getMessage()
@@ -206,7 +239,7 @@ abstract class AbstractNoPaynPaymentHandler extends AbstractPaymentHandler
             return;
         }
 
-        if (\in_array($status, ['processing', 'new'], true)) {
+        if (\in_array($status, ['processing', 'new', 'authorized'], true)) {
             return;
         }
 
@@ -276,6 +309,108 @@ abstract class AbstractNoPaynPaymentHandler extends AbstractPaymentHandler
         $row['language_id'] = Uuid::fromBytesToHex($row['language_id']);
 
         return $row;
+    }
+
+    private function buildOrderLines(string $orderTransactionId, string $currency): array
+    {
+        $rows = $this->connection->fetchAllAssociative(
+            'SELECT
+                oli.id AS line_item_id,
+                oli.label,
+                oli.quantity,
+                oli.unit_price,
+                oli.total_price,
+                oli.type
+             FROM `order_transaction` ot
+             INNER JOIN `order_line_item` oli ON ot.order_id = oli.order_id AND ot.order_version_id = oli.version_id
+             WHERE ot.id = :id',
+            ['id' => Uuid::fromHexToBytes($orderTransactionId)]
+        );
+
+        $orderLines = [];
+
+        foreach ($rows as $row) {
+            $unitPriceCents = (int) round((float) $row['unit_price'] * 100);
+            $vatPercentage = $this->getLineItemVatRate($row['line_item_id']);
+
+            $type = 'physical';
+            if ($row['type'] === 'product') {
+                $type = 'physical';
+            } elseif (\in_array($row['type'], ['promotion', 'discount'], true)) {
+                $type = 'discount';
+            }
+
+            $orderLines[] = [
+                'type' => $type,
+                'name' => $row['label'],
+                'quantity' => (int) $row['quantity'],
+                'amount' => $unitPriceCents,
+                'currency' => $currency,
+                'vat_percentage' => $vatPercentage,
+                'merchant_order_line_id' => Uuid::fromBytesToHex($row['line_item_id']),
+            ];
+        }
+
+        // Add shipping costs
+        $shippingCosts = $this->getShippingCosts($orderTransactionId);
+        if ($shippingCosts !== null && $shippingCosts['amount'] > 0) {
+            $orderLines[] = [
+                'type' => 'shipping_fee',
+                'name' => 'Shipping',
+                'quantity' => 1,
+                'amount' => $shippingCosts['amount'],
+                'currency' => $currency,
+                'vat_percentage' => $shippingCosts['vat_percentage'],
+                'merchant_order_line_id' => 'shipping',
+            ];
+        }
+
+        return $orderLines;
+    }
+
+    private function getLineItemVatRate(string $lineItemIdBin): int
+    {
+        try {
+            $taxRate = $this->connection->fetchOne(
+                'SELECT olit.tax_rate
+                 FROM `order_line_item_tax` olit
+                 WHERE olit.order_line_item_id = :id
+                 LIMIT 1',
+                ['id' => $lineItemIdBin]
+            );
+
+            if ($taxRate !== false) {
+                return (int) round((float) $taxRate * 100);
+            }
+        } catch (\Throwable) {
+        }
+
+        return 0;
+    }
+
+    private function getShippingCosts(string $orderTransactionId): ?array
+    {
+        try {
+            $row = $this->connection->fetchAssociative(
+                'SELECT o.shipping_total
+                 FROM `order_transaction` ot
+                 INNER JOIN `order` o ON ot.order_id = o.id AND ot.order_version_id = o.version_id
+                 WHERE ot.id = :id',
+                ['id' => Uuid::fromHexToBytes($orderTransactionId)]
+            );
+
+            if ($row && (float) $row['shipping_total'] > 0) {
+                $amountCents = (int) round((float) $row['shipping_total'] * 100);
+
+                return [
+                    'amount' => $amountCents,
+                    'vat_percentage' => 0,
+                ];
+            }
+        } catch (\Throwable) {
+        }
+
+        return null;
     }
 
     private function cancelOrder(string $orderId, Context $context): void

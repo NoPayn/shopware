@@ -33,6 +33,8 @@ class WebhookController
         private readonly Connection $connection,
         private readonly StateMachineRegistry $stateMachineRegistry,
         private readonly LoggerInterface $logger,
+        private readonly LoggerInterface $nopaynDebugLogger,
+        private readonly LoggerInterface $nopaynErrorLogger,
     ) {
     }
 
@@ -45,9 +47,15 @@ class WebhookController
     public function webhook(Request $request): Response
     {
         $payload = json_decode($request->getContent(), true);
+        $debugLogging = (bool) $this->systemConfigService->get('NoPaynPayment.config.debugLogging');
+
+        if ($debugLogging) {
+            $this->nopaynDebugLogger->debug('NoPayn: webhook received', ['payload' => $payload]);
+        }
 
         if (!isset($payload['order_id'])) {
-            $this->logger->warning('NoPayn webhook: missing order_id');
+            $this->logger->warning('NoPayn: webhook missing order_id');
+            $this->nopaynErrorLogger->warning('NoPayn: webhook missing order_id', ['payload' => $payload]);
             return new JsonResponse(['status' => 'error', 'message' => 'Missing order_id'], 400);
         }
 
@@ -59,26 +67,36 @@ class WebhookController
         );
 
         if (!$nopaynTx) {
-            $this->logger->warning('NoPayn webhook: unknown order_id', ['nopaynOrderId' => $nopaynOrderId]);
+            $this->logger->warning('NoPayn: webhook unknown order_id', ['nopaynOrderId' => $nopaynOrderId]);
+            $this->nopaynErrorLogger->warning('NoPayn: webhook unknown order_id', ['nopaynOrderId' => $nopaynOrderId]);
             return new JsonResponse(['status' => 'ok']);
         }
 
         if (\in_array($nopaynTx['status'], self::FINAL_STATUSES, true)) {
+            if ($debugLogging) {
+                $this->nopaynDebugLogger->debug('NoPayn: webhook skipped, already final', [
+                    'nopaynOrderId' => $nopaynOrderId,
+                    'status' => $nopaynTx['status'],
+                ]);
+            }
             return new JsonResponse(['status' => 'ok', 'info' => 'already_final']);
         }
 
         $apiKey = $this->systemConfigService->getString('NoPaynPayment.config.apiKey');
         if ($apiKey === '') {
-            $this->logger->error('NoPayn webhook: API key not configured');
+            $this->logger->error('NoPayn: webhook API key not configured');
+            $this->nopaynErrorLogger->error('NoPayn: webhook API key not configured');
             return new JsonResponse(['status' => 'ok']);
         }
 
         $this->apiClient->setApiKey($apiKey);
+        $this->apiClient->setDebugLogging($debugLogging);
 
         try {
             $nopaynOrder = $this->apiClient->getOrder($nopaynOrderId);
         } catch (\Throwable $e) {
-            $this->logger->error('NoPayn webhook: API error', ['error' => $e->getMessage()]);
+            $this->logger->error('NoPayn: webhook API error', ['error' => $e->getMessage()]);
+            $this->nopaynErrorLogger->error('NoPayn: webhook API error', ['error' => $e->getMessage()]);
             return new JsonResponse(['status' => 'error'], 500);
         }
 
@@ -86,6 +104,16 @@ class WebhookController
         $orderTransactionId = Uuid::fromBytesToHex($nopaynTx['order_transaction_id']);
         $orderId = Uuid::fromBytesToHex($nopaynTx['order_id']);
         $context = Context::createDefaultContext();
+        $captureMode = $nopaynTx['capture_mode'] ?? 'automatic';
+
+        if ($debugLogging) {
+            $this->nopaynDebugLogger->debug('NoPayn: webhook processing', [
+                'nopaynOrderId' => $nopaynOrderId,
+                'status' => $status,
+                'captureMode' => $captureMode,
+                'orderTransactionId' => $orderTransactionId,
+            ]);
+        }
 
         $this->connection->executeStatement(
             'UPDATE `nopayn_transactions` SET `status` = :status, `updated_at` = :now WHERE `nopayn_order_id` = :id',
@@ -102,7 +130,21 @@ class WebhookController
             if ($status === 'completed') {
                 $this->transitionTransactionToPaid($orderTransactionId, $currentTxState, $context);
                 $this->transitionOrderTo($orderId, 'process', $context);
+            } elseif ($status === 'authorized' && $captureMode === 'manual') {
+                // For manual capture, authorized means payment is ready but not captured yet.
+                // Transition the Shopware transaction to "authorized" state.
+                if ($currentTxState === OrderTransactionStates::STATE_OPEN) {
+                    $this->transactionStateHandler->process($orderTransactionId, $context);
+                    $this->transactionStateHandler->authorize($orderTransactionId, $context);
+                } elseif ($currentTxState === OrderTransactionStates::STATE_IN_PROGRESS) {
+                    $this->transactionStateHandler->authorize($orderTransactionId, $context);
+                }
             } elseif (\in_array($status, ['cancelled', 'expired', 'error'], true)) {
+                // Void if this was a manual capture that was authorized but not yet captured
+                if ($captureMode === 'manual' && \in_array($status, ['cancelled'], true)) {
+                    $this->voidAuthorizedTransaction($nopaynOrder, $nopaynTx, $debugLogging);
+                }
+
                 if ($currentTxState !== OrderTransactionStates::STATE_CANCELLED
                     && $currentTxState !== OrderTransactionStates::STATE_FAILED) {
                     $this->transactionStateHandler->cancel($orderTransactionId, $context);
@@ -110,7 +152,12 @@ class WebhookController
                 $this->transitionOrderTo($orderId, 'cancel', $context);
             }
         } catch (\Throwable $e) {
-            $this->logger->error('NoPayn webhook: state transition error', [
+            $this->logger->error('NoPayn: webhook state transition error', [
+                'error' => $e->getMessage(),
+                'orderTransactionId' => $orderTransactionId,
+                'status' => $status,
+            ]);
+            $this->nopaynErrorLogger->error('NoPayn: webhook state transition error', [
                 'error' => $e->getMessage(),
                 'orderTransactionId' => $orderTransactionId,
                 'status' => $status,
@@ -127,6 +174,8 @@ class WebhookController
             $this->transactionStateHandler->paid($txId, $context);
         } elseif ($currentState === OrderTransactionStates::STATE_IN_PROGRESS) {
             $this->transactionStateHandler->paid($txId, $context);
+        } elseif ($currentState === OrderTransactionStates::STATE_AUTHORIZED) {
+            $this->transactionStateHandler->paid($txId, $context);
         }
     }
 
@@ -142,6 +191,49 @@ class WebhookController
                 'orderId' => $orderId,
                 'action' => $action,
                 'reason' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    private function voidAuthorizedTransaction(array $nopaynOrder, array $nopaynTx, bool $debugLogging): void
+    {
+        $transactions = $nopaynOrder['transactions'] ?? [];
+        if ($transactions === []) {
+            return;
+        }
+
+        $transactionId = $transactions[0]['id'] ?? null;
+        if ($transactionId === null) {
+            return;
+        }
+
+        $amountCents = (int) $nopaynTx['amount'];
+
+        try {
+            if ($debugLogging) {
+                $this->nopaynDebugLogger->debug('NoPayn: voiding authorized transaction', [
+                    'nopaynOrderId' => $nopaynTx['nopayn_order_id'],
+                    'transactionId' => $transactionId,
+                    'amount' => $amountCents,
+                ]);
+            }
+
+            $this->apiClient->voidTransaction(
+                $nopaynTx['nopayn_order_id'],
+                $transactionId,
+                $amountCents,
+                'Order cancelled'
+            );
+        } catch (\Throwable $e) {
+            $this->logger->error('NoPayn: void transaction failed', [
+                'error' => $e->getMessage(),
+                'nopaynOrderId' => $nopaynTx['nopayn_order_id'],
+                'transactionId' => $transactionId,
+            ]);
+            $this->nopaynErrorLogger->error('NoPayn: void transaction failed', [
+                'error' => $e->getMessage(),
+                'nopaynOrderId' => $nopaynTx['nopayn_order_id'],
+                'transactionId' => $transactionId,
             ]);
         }
     }
